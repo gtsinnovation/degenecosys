@@ -1,0 +1,120 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-py"
+}
+
+model Warrior {
+  id              String              @id @default(uuid())
+  walletAddress   String              @unique @map("wallet_address")
+  username        String?             @unique
+  avatarUrl       String?             @map("avatar_url")
+  
+  // New Customizable Warrior Profile Attributes
+  bio             String?             
+  bannerUrl       String?             @map("banner_url")
+  twitterHandle   String?             @map("twitter_handle")
+
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  xp              WarriorXp?
+  givenUpvotes    CommunityUpvote[]   @relation("VoterRelation")
+  receivedUpvotes CommunityUpvote[]  @relation("TargetRelation")
+  submissions     ContestSubmission[]
+  
+  // Many-to-many link tracking unlocked badges
+  earnedBadges    WarriorEarnedBadge[]
+
+  @@map("warriors")
+}
+
+model WarriorXp {
+  warriorId  String   @id @map("warrior_id")
+  warrior    Warrior  @relation(fields: [warriorId], references: [id], onDelete: Cascade)
+  currentXp  Int      @default(0) @map("current_xp")
+  rankTier   Int      @default(1) @map("rank_tier")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("warrior_xp")
+}
+
+model CommunityUpvote {
+  id        String   @id @default(uuid())
+  voterId   String   @map("voter_id")
+  targetId  String   @map("target_id")
+  voter     Warrior  @relation("VoterRelation", fields: [voterId], references: [id], onDelete: Cascade)
+  target    Warrior  @relation("TargetRelation", fields: [targetId], references: [id], onDelete: Cascade)
+  weight    Float    @default(1.00)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([voterId, targetId])
+  @@map("community_upvotes")
+}
+
+model WalletBalanceSnapshot {
+  id                    String   @id @default(uuid())
+  walletAddress         String   @map("wallet_address")
+  tokenBalance          Float    @map("token_balance")
+  circulatingPercentage Float    @map("circulating_percentage")
+  snapshotDate          DateTime @default(now()) @map("snapshot_date")
+
+  @@unique([walletAddress, snapshotDate])
+  @@map("wallet_balance_snapshots")
+}
+
+model Contest {
+  id          String              @id @default(uuid())
+  title       String
+  description String?
+  prizePoolDd Float               @map("prize_pool_dd")
+  isActive    Boolean             @default(true) @map("is_active")
+  startDate   DateTime            @map("start_date")
+  endDate     DateTime            @map("end_date")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  submissions ContestSubmission[]
+
+  @@map("contests")
+}
+
+model ContestSubmission {
+  id             String   @id @default(uuid())
+  contestId      String   @map("contest_id")
+  warriorId      String   @map("warrior_id")
+  submissionLink String   @map("submission_link")
+  status         String   @default("PENDING")
+  rewardPaid     Boolean  @default(false) @map("reward_paid")
+  txSignature    String?  @map("tx_signature")
+  createdAt      DateTime @default(now()) @map("created_at")
+  contest        Contest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  warrior        Warrior  @relation(fields: [warriorId], references: [id], onDelete: Cascade)
+
+  @@map("contest_submissions")
+}
+
+// 2. NEW ACHIEVEMENT BADGES CATALOG
+model Badge {
+  id                     String               @id @default(uuid())
+  name                   String               @unique
+  description            String
+  iconSvg                String               @map("icon_svg")
+  xpRequirementThreshold Int                  @default(0) @map("xp_requirement_threshold")
+  createdAt              DateTime             @default(now()) @map("created_at")
+  earners                WarriorEarnedBadge[]
+
+  @@map("badges")
+}
+
+// 3. NEW EARNED BADGES JUNCTION STATE MACHINE
+model WarriorEarnedBadge {
+  warriorId  String   @map("warrior_id")
+  badgeId    String   @map("badge_id")
+  unlockedAt DateTime @default(now()) @map("unlocked_at")
+  warrior    Warrior  @relation(fields: [warriorId], references: [id], onDelete: Cascade)
+  badge      Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@id([warriorId, badgeId])
+  @@map("warrior_earned_badges")
+}

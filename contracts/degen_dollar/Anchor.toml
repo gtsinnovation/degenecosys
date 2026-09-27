@@ -1,0 +1,21 @@
+[toolchain]
+
+[features]
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+degen_dollar = "hPo88udXwqH85rZttR4mDrdqDA9F8FS1rZTbKU5xNhi"
+
+[programs.devnet]
+degen_dollar = "hPo88udXwqH85rZttR4mDrdqDA9F8FS1rZTbKU5xNhi"
+
+[registry]
+url = "https://apr.dev"
+
+[provider]
+cluster = "https://gthomas-develope-6943.devnet.rpcpool.com/13ca7f42-ec4c-47cc-88be-b06cf519c92b"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-node tests/ecosystem.ts"

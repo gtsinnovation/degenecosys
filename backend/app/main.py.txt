@@ -1,0 +1,61 @@
+# backend/app/main.py
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel
+from prisma import Prisma
+from app.engine import process_vote_action, verify_whale_booster_status
+from app.contests import router as contests_router
+app = FastAPI(title="Degen Ecosystem Application Core Engine", version="1.0.0")
+db = Prisma()
+
+@app.on_event("startup")
+async def startup():
+    await db.connect()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await db.disconnect()
+
+class VoteRequest(BaseModel):
+    voter_wallet: str
+    target_wallet: str
+    is_upvote: bool
+
+@app.post("/api/interact/vote")
+async def register_warrior_vote(payload: VoteRequest):
+    """
+    Endpoint for warriors to cast upvotes or deployment of veto-boosters.
+    """
+    result = await process_vote_action(
+        db, payload.voter_wallet, payload.target_wallet, payload.is_upvote
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["detail"])
+    return result
+
+@app.get("/api/leaderboard")
+async def get_warrior_leaderboard(limit: int = 50):
+    """
+    Returns live Leaderboard statistics sorted instantaneously by top ascended XP tiers.
+    """
+    leaderboard = await db.warriorxp.find_many(
+        order={"currentXp": "desc"},
+        take=limit,
+        include={"warrior": True}
+    )
+    return [
+        {
+            "username": item.warrior.username,
+            "wallet_address": item.warrior.walletAddress,
+            "current_xp": item.currentXp,
+            "rank_tier": item.rankTier
+        }
+        for item in leaderboard
+    ]
+
+@app.get("/api/warrior/{wallet_address}/booster-status")
+async def check_booster_eligibility(wallet_address: str):
+    """
+    Exposes on-chain snapshot check outputs verifying continuous whale token governance properties.
+    """
+    is_whale = await verify_whale_booster_status(db, wallet_address)
+    return {"wallet_address": wallet_address, "has_veto_booster": is_whale}

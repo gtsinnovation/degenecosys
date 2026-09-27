@@ -1,0 +1,23 @@
+[package]
+name = "degen_dollar"
+version = "1.0.0"
+description = "Core Multi-Vault Linear Vesting Engine and 1% Charity Stream Manager for $DD"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+no-idl = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.29.0"
+anchor-spl = "0.29.0"
+solana-program = "1.17.0"
+winnow = "=0.4.1" 
+
+[patch.crates-io]
+zeroize_derive = { git = "https://github.com", rev = "0eeaa45" }
