@@ -1,0 +1,83 @@
+# backend/scripts/mock_historical_data.py
+import asyncio
+import datetime
+from prisma import Prisma
+
+# Mock wallet addresses for testing
+VALID_WHALE_WALLET = "WhaleTrue999999999999999999999999999999999"
+PAPERHANDS_WALLET  = "PaperDips111111111111111111111111111111111"
+TOTAL_SUPPLY = 1_000_000_000.0
+
+async def seed_mock_snapshot_history():
+    """
+    Populates 30 days of consecutive historical snapshot data directly
+    into the database to test the FastAPI /booster-status endpoint logic.
+    """
+    db = Prisma()
+    await db.connect()
+    
+    print(f"[{datetime.datetime.now()}] Initializing local mock historical data generator...")
+    
+    today = datetime.date.today()
+    
+    # Clean out any old mock data to guarantee test purity
+    await db.walletbalancesnapshot.delete_many(
+        where={
+            "walletAddress": {
+                "in": [VALID_WHALE_WALLET, PAPERHANDS_WALLET]
+            }
+        }
+    )
+
+    print("Generating 30 days of programmatic snapshot data...")
+    
+    for day_offset in range(32): # Generate 32 days to cover padding margins safely
+        target_date = today - datetime.timedelta(days=day_offset)
+        target_timestamp = datetime.datetime.combine(target_date, datetime.time.min)
+
+        # 1. SCENARIO A: Valid Whale Wallet stays at 2.5% continuously
+        whale_balance = TOTAL_SUPPLY * 0.025 # 25 Million tokens
+        whale_percentage = 2.50
+        
+        await db.walletbalancesnapshot.create(
+            data={
+                "walletAddress": VALID_WHALE_WALLET,
+                "tokenBalance": whale_balance,
+                "circulatingPercentage": whale_percentage,
+                "snapshotDate": target_timestamp
+            }
+        )
+
+        # 2. SCENARIO B: Paperhands Wallet dips below 2% at day 15
+        if day_offset <= 15:
+            # Recent history: holding plenty of tokens
+            paper_balance = TOTAL_SUPPLY * 0.03
+            paper_percentage = 3.00
+        else:
+            # Older history: dipped below the ecosystem rules
+            paper_balance = TOTAL_SUPPLY * 0.005 # Only 0.5%
+            paper_percentage = 0.50
+
+        await db.walletbalancesnapshot.create(
+            data={
+                "walletAddress": PAPERHANDS_WALLET,
+                "tokenBalance": paper_balance,
+                "circulatingPercentage": paper_percentage,
+                "snapshotDate": target_timestamp
+            }
+        )
+
+    print("\n====================================================")
+    print("✅ MOCK DATA GENERATION COMPLETE")
+    print("====================================================")
+    print(f"Valid Whale Target: {VALID_WHALE_WALLET}")
+    print(f"Invalid Target:     {PAPERHANDS_WALLET}")
+    print("====================================================")
+    print("Next step: Call your API status endpoints to verify:")
+    print(f" -> http://localhost:8000/api/warrior/{VALID_WHALE_WALLET}/booster-status")
+    print(f" -> http://localhost:8000/api/warrior/{PAPERHANDS_WALLET}/booster-status")
+    
+    await db.disconnect()
+
+if __name__ == "__main__":
+    asyncio.run(seed_mock_snapshot_history())
