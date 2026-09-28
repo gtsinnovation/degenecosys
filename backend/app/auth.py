@@ -172,13 +172,36 @@ async def verify_wallet_challenge(
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid wallet signature.") from exc
 
-    # Atomically consume the one-time nonce so concurrent/replayed verifies cannot mint tokens.
-    consumed = await client.walletchallenge.update_many(
-        where={"nonce": payload.nonce, "usedAt": None, "expiresAt": {"gt": now}},
-        data={"usedAt": now},
-    )
-    if consumed.count != 1:
-        raise HTTPException(status_code=401, detail="Wallet challenge was already used.")
+    # Validate token configuration before consuming the one-time challenge.
+    access_token = _issue_token(payload.wallet_address)
 
-    return {"access_token": _issue_token(payload.wallet_address), "token_type": "bearer",
-            "expires_in": TOKEN_TTL_SECONDS}
+    # Consume the challenge and provision first-time users atomically. Replayed
+    # verifications cannot create extra profiles or mint additional tokens.
+    async with client.tx() as transaction:
+        consumed = await transaction.walletchallenge.update_many(
+            where={"nonce": payload.nonce, "usedAt": None, "expiresAt": {"gt": now}},
+            data={"usedAt": now},
+        )
+        if consumed.count != 1:
+            raise HTTPException(status_code=401, detail="Wallet challenge was already used.")
+
+        warrior = await transaction.warrior.upsert(
+            where={"walletAddress": payload.wallet_address},
+            data={
+                "create": {"walletAddress": payload.wallet_address},
+                "update": {},
+            },
+        )
+        await transaction.warriorxp.upsert(
+            where={"warriorId": warrior.id},
+            data={
+                "create": {"warriorId": warrior.id, "currentXp": 0, "rankTier": 1},
+                "update": {},
+            },
+        )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_in": TOKEN_TTL_SECONDS,
+    }
