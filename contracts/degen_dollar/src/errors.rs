@@ -13,4 +13,6 @@ pub mod DegenError {
     Unauthorized,
     #[msg("Math calculation error or overflow occurred during vesting evaluation.")]
     MathOverflow,
+    #[msg("The vesting duration must be positive and the cliff must be within the duration.")]
+    InvalidVestingDuration,
 }
