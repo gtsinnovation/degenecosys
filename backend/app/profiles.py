@@ -1,15 +1,18 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional
 from prisma import Prisma
+from app.auth import get_current_wallet
 
 router = APIRouter(prefix="/api/warrior", tags=["Warrior Identity & Profiles"])
 db = Prisma()
+
 
 async def get_db():
     if not db.is_connected():
         await db.connect()
     return db
+
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = Field(None, max_length=50)
@@ -18,20 +21,18 @@ class UpdateProfileRequest(BaseModel):
     avatar_url: Optional[str] = None
     twitter_handle: Optional[str] = Field(None, max_length=15)
 
+
 @router.get("/{wallet_address}/profile")
-async def get_complete_warrior_profile(wallet_address: str, client: Prisma = Depends(get_db)):
-    """
-    Retrieves complete descriptive attributes, active XP standings, and unlocked 
-    gamified badge vectors for a targeted wallet profile.
-    """
+async def get_complete_warrior_profile(
+    wallet_address: str, client: Prisma = Depends(get_db)
+):
     warrior = await client.warrior.find_unique(
         where={"walletAddress": wallet_address},
         include={"xp": True, "earnedBadges": {"include": {"badge": True}}}
     )
-    
     if not warrior:
-        raise HTTPException(status_code=404, detail="Warrior identity card not found in database matrix.")
-        
+        raise HTTPException(status_code=404, detail="Warrior profile not found.")
+
     return {
         "wallet_address": warrior.walletAddress,
         "username": warrior.username,
@@ -51,22 +52,31 @@ async def get_complete_warrior_profile(wallet_address: str, client: Prisma = Dep
         ]
     }
 
-@router.post("/{wallet_address}/update")
-async def update_warrior_profile(wallet_address: str, payload: UpdateProfileRequest, client: Prisma = Depends(get_db)):
-    """
-    Enforces secure attribute updates for active community member cards.
-    """
-    warrior = await client.warrior.find_unique(where={"walletAddress": wallet_address})
-    if not warrior:
-        raise HTTPException(status_code=404, detail="Warrior identity context not found.")
 
-    update_data = {k: v for k, v in payload.dict(exclude_unset=True).items()}
-    
+@router.post("/{wallet_address}/update")
+async def update_warrior_profile(
+    wallet_address: str,
+    payload: UpdateProfileRequest,
+    client: Prisma = Depends(get_db),
+    authenticated_wallet: str = Depends(get_current_wallet),
+):
+    if wallet_address != authenticated_wallet:
+        raise HTTPException(status_code=403, detail="A wallet may only update its own profile.")
+
+    warrior = await client.warrior.find_unique(where={"walletAddress": authenticated_wallet})
+    if not warrior:
+        raise HTTPException(status_code=404, detail="Warrior profile not found.")
+
+    update_data = payload.model_dump(exclude_unset=True)
     try:
         updated_warrior = await client.warrior.update(
-            where={"walletAddress": wallet_address},
+            where={"walletAddress": authenticated_wallet},
             data=update_data
         )
-        return {"success": True, "wallet_address": updated_warrior.walletAddress, "updated_fields": list(update_data.keys())}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database constraint error during profile rewrite: {str(e)}")
+        return {
+            "success": True,
+            "wallet_address": updated_warrior.walletAddress,
+            "updated_fields": list(update_data.keys())
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Profile update failed.") from exc
