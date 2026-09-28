@@ -19,12 +19,30 @@ pub mod degen_dollar {
     pub fn initialize_ecosystem(ctx: Context<InitializeEcosystem>) -> Result<()> {
         let total_supply: u64 = 1_000_000_000 * 1_000_000_000; // 1 Billion tokens with 9 decimals
 
-        // Updated 2026 Core Tokenomics Allotments
-        let liquidity_amount = total_supply * 50 / 100;       // 50%
-        let community_amount = total_supply * 30 / 100;       // 30%
-        let marketing_amount = total_supply * 10 / 100;       // 10%
-        let dev_amount       = total_supply * 9 / 100;        // 9%  (Adjusted for balance)
-        let charity_amount   = total_supply * 1 / 100;        // 1%  (Refined from user constraints)
+        let vault_keys = [
+            ctx.accounts.liquidity_vault.key(),
+            ctx.accounts.community_vault.key(),
+            ctx.accounts.marketing_vault.key(),
+            ctx.accounts.dev_vault.key(),
+            ctx.accounts.charity_vault.key(),
+        ];
+        for index in 0..vault_keys.len() {
+            for other_index in (index + 1)..vault_keys.len() {
+                require!(
+                    vault_keys[index] != vault_keys[other_index],
+                    DegenError::InvalidVaultAccounts
+                );
+            }
+        }
+
+        // Updated 2026 Core Tokenomics Allotments.
+        // Divide first so multiplying the u64 supply by a percentage cannot overflow.
+        let allocation_unit = total_supply / 100;
+        let liquidity_amount = allocation_unit * 50;  // 50%
+        let community_amount = allocation_unit * 30;  // 30%
+        let marketing_amount = allocation_unit * 10;  // 10%
+        let dev_amount = allocation_unit * 9;         // 9%
+        let charity_amount = allocation_unit;         // 1%
 
         token::mint_to(ctx.accounts.into_mint_to_context(ctx.accounts.liquidity_vault.to_account_info()), liquidity_amount)?;
         token::mint_to(ctx.accounts.into_mint_to_context(ctx.accounts.community_vault.to_account_info()), community_amount)?;
