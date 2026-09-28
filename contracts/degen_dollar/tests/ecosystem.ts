@@ -30,11 +30,10 @@ describe("degen_dollar_ecosystem_tests", () => {
   let warriorTokenAccount: anchor.web3.Pubkey;
   let vestingSchedulePda: anchor.web3.Pubkey;
   let vestingScheduleBump: number;
-  let charityStatePda: anchor.web3.Pubkey;
 
   before(async () => {
     // 1. Derive required program-derived account handles (PDAs)
-    [charityStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
+    const [charityStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("charity_state")],
       program.programId
     );
@@ -84,6 +83,10 @@ describe("degen_dollar_ecosystem_tests", () => {
   });
 
   it("Configures a linear vesting schedule with an active cliff constraint", async () => {
+    const [charityStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("charity_state")],
+      program.programId
+    );
     const totalVestingAmount = new anchor.BN(10_000_000).mul(new anchor.BN(1_000_000_000)); // 10M tokens
     const cliffDuration = new anchor.BN(10); // Short 10-second cliff window for local test stability
     const totalDuration = new anchor.BN(100); // 100-second full linear vesting lifecycle
