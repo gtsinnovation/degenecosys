@@ -30,10 +30,11 @@ describe("degen_dollar_ecosystem_tests", () => {
   let warriorTokenAccount: anchor.web3.Pubkey;
   let vestingSchedulePda: anchor.web3.Pubkey;
   let vestingScheduleBump: number;
+  let charityStatePda: anchor.web3.Pubkey;
 
   before(async () => {
     // 1. Derive required program-derived account handles (PDAs)
-    const [charityStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
+    [charityStatePda] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("charity_state")],
       program.programId
     );
@@ -90,6 +91,7 @@ describe("degen_dollar_ecosystem_tests", () => {
     await program.methods
       .setupVesting(totalVestingAmount, cliffDuration, totalDuration)
       .accounts({
+        charityState: charityStatePda,
         vestingSchedule: vestingSchedulePda,
         beneficiary: warriorBeneficiary.publicKey,
         authority: authority.publicKey,
