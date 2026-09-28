@@ -228,11 +228,14 @@ pub struct SetupVesting<'info> {
 
 #[derive(Accounts)]
 pub struct ReleaseVestedTokens<'info> {
+    #[account(seeds = [b"charity_state"], bump = charity_state.bump)]
+    pub charity_state: Account<'info, CharityVaultState>,
     #[account(mut, seeds = [b"vesting", beneficiary.key().as_ref()], bump = vesting_schedule.bump)]
     pub vesting_schedule: Account<'info, VestingSchedule>,
     #[account(
         mut,
         constraint = vault_account.owner == vault_authority.key() @ DegenError::InvalidVestingAccounts,
+        constraint = vault_account.mint == charity_state.token_mint @ DegenError::InvalidVestingAccounts,
         constraint = vault_account.mint == beneficiary_token_account.mint @ DegenError::InvalidVestingAccounts
     )]
     pub vault_account: Account<'info, TokenAccount>,
