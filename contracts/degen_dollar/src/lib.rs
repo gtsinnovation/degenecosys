@@ -9,7 +9,7 @@ use state::*;
 use charity::*;
 use errors::DegenError;
 
-declare_id!("declare_id!("81ATiM25NUgvYjJk4dmBy8e1tzJ8CPBdfYEe4cgDNXdU");
+declare_id!("hPo88udXwqH85rZttR4mDrdqDA9F8FS1rZTbKU5xNhi");
 
 #[program]
 pub mod degen_dollar {
