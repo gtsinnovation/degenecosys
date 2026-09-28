@@ -14,7 +14,7 @@ fi
 
 # 2. Lock network context parameters to Devnet endpoints
 echo "Setting network targets directly to Solana Devnet RPC clusters..."
-solana config set --url https://solana.com
+solana config set --url https://api.devnet.solana.com
 
 # 3. Check deployment authority gas fund parameters
 balance=$(solana balance | awk '{print $1}')
