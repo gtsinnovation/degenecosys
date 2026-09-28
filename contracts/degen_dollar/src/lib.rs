@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, MintTo, Transfer};
+use anchor_spl::token::{self, Mint, Token, TokenAccount, MintTo, SetAuthority, Transfer};
 
 pub mod state;
 pub mod errors;
@@ -31,6 +31,19 @@ pub mod degen_dollar {
         token::mint_to(ctx.accounts.into_mint_to_context(ctx.accounts.marketing_vault.to_account_info()), marketing_amount)?;
         token::mint_to(ctx.accounts.into_mint_to_context(ctx.accounts.dev_vault.to_account_info()), dev_amount)?;
         token::mint_to(ctx.accounts.into_mint_to_context(ctx.accounts.charity_vault.to_account_info()), charity_amount)?;
+
+        // Make the initial supply immutable after all allocations are minted.
+        token::set_authority(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                SetAuthority {
+                    current_authority: ctx.accounts.authority.to_account_info(),
+                    account_or_mint: ctx.accounts.token_mint.to_account_info(),
+                },
+            ),
+            token::spl_token::instruction::AuthorityType::MintTokens,
+            None,
+        )?;
 
         // Populate Charity Tracking State
         let charity_state = &mut ctx.accounts.charity_state;
