@@ -209,11 +209,17 @@ pub struct SetupVesting<'info> {
 pub struct ReleaseVestedTokens<'info> {
     #[account(mut, seeds = [b"vesting", beneficiary.key().as_ref()], bump = vesting_schedule.bump)]
     pub vesting_schedule: Account<'info, VestingSchedule>,
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = vault_account.owner == vault_authority.key() @ DegenError::InvalidVestingAccounts,
+        constraint = vault_account.mint == beneficiary_token_account.mint @ DegenError::InvalidVestingAccounts
+    )]
     pub vault_account: Account<'info, TokenAccount>,
-    /// CHECK: Seed validation handling authority for token account distribution mechanics
-    pub vault_authority: AccountInfo<'info>,
-    #[account(mut)]
+    pub vault_authority: Signer<'info>,
+    #[account(
+        mut,
+        constraint = beneficiary_token_account.owner == beneficiary.key() @ DegenError::InvalidVestingAccounts
+    )]
     pub beneficiary_token_account: Account<'info, TokenAccount>,
     pub beneficiary: Signer<'info>,
     pub token_program: Program<'info, Token>,
