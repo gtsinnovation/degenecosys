@@ -41,7 +41,7 @@ class SubmitChallengeRequest(BaseModel):
         try:
             parsed = urlsplit(value)
             hostname = parsed.hostname
-            parsed.port  # Accessing this validates the port syntax and range.
+            _ = parsed.port  # Validate the port syntax and range.
         except ValueError as exc:
             raise ValueError("Submission link must be a valid HTTP or HTTPS URL.") from exc
 
