@@ -23,6 +23,31 @@ async def get_db():
     return db
 
 
+@router.get("")
+async def list_active_contests(client: Prisma = Depends(get_db)):
+    now = datetime.now(timezone.utc)
+    contests = await client.contest.find_many(
+        where={
+            "isActive": True,
+            "startDate": {"lte": now},
+            "endDate": {"gt": now},
+        },
+        order={"startDate": "asc"},
+    )
+    return [
+        {
+            "id": contest.id,
+            "title": contest.title,
+            "description": contest.description,
+            "prize_pool_dd": contest.prizePoolDd,
+            "is_active": contest.isActive,
+            "start_date": as_utc(contest.startDate).isoformat(),
+            "end_date": as_utc(contest.endDate).isoformat(),
+        }
+        for contest in contests
+    ]
+
+
 class CreateContestRequest(BaseModel):
     title: str
     description: str
