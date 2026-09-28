@@ -9,16 +9,16 @@ REQUIRED_DAYS = 30
 
 async def verify_whale_booster_status(db: Prisma, wallet_address: str) -> bool:
     """
-    Checks if a wallet has held more than 2% of total supply continuously for 30+ days.
+    Requires a qualifying daily snapshot on every date spanning 30 elapsed days.
     """
     today = datetime.date.today()
-    thirty_days_ago = today - datetime.timedelta(days=REQUIRED_DAYS)
+    period_start = today - datetime.timedelta(days=REQUIRED_DAYS)
 
     snapshots = await db.walletbalancesnapshot.find_many(
         where={
             "walletAddress": wallet_address,
             "snapshotDate": {
-                "gte": datetime.datetime.combine(thirty_days_ago, datetime.time.min),
+                "gte": datetime.datetime.combine(period_start, datetime.time.min),
                 "lte": datetime.datetime.combine(today, datetime.time.max)
             }
         }
@@ -29,7 +29,11 @@ async def verify_whale_booster_status(db: Prisma, wallet_address: str) -> bool:
         for snap in snapshots
         if snap.circulatingPercentage >= WHALE_THRESHOLD_PERCENT
     }
-    return len(valid_days) >= REQUIRED_DAYS
+    required_dates = {
+        period_start + datetime.timedelta(days=offset)
+        for offset in range(REQUIRED_DAYS + 1)
+    }
+    return required_dates.issubset(valid_days)
 
 
 async def process_vote_action(
