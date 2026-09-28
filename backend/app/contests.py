@@ -2,11 +2,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from datetime import datetime, timezone
 from prisma import Prisma
+from app.database import db
 from app.auth import get_current_wallet, require_admin_wallet
 from app.engine import apply_xp_delta
 
 router = APIRouter(prefix="/api/contests", tags=["Contests & Challenges"])
-db = Prisma()
 
 
 def as_utc(value: datetime) -> datetime:
