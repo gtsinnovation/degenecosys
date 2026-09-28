@@ -7,7 +7,7 @@ import os
 import secrets
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
@@ -20,6 +20,18 @@ router = APIRouter(prefix="/api/auth", tags=["Wallet authentication"])
 bearer = HTTPBearer(auto_error=False)
 TOKEN_TTL_SECONDS = 60 * 60
 CHALLENGE_TTL_SECONDS = 5 * 60
+
+
+def _request_origin(request: Request) -> str:
+    origin = request.headers.get("origin")
+    allowed_origins = {
+        value.strip()
+        for value in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+        if value.strip()
+    }
+    if not origin or origin not in allowed_origins:
+        raise HTTPException(status_code=403, detail="Wallet sign-in origin is not allowed.")
+    return origin
 
 
 async def get_db() -> Prisma:
@@ -101,8 +113,11 @@ async def require_admin_wallet(wallet_address: str = Depends(get_current_wallet)
 
 @router.post("/challenge")
 async def create_wallet_challenge(
-    payload: ChallengeRequest, client: Prisma = Depends(get_db)
+    payload: ChallengeRequest,
+    request: Request,
+    client: Prisma = Depends(get_db),
 ):
+    origin = _request_origin(request)
     try:
         Pubkey.from_string(payload.wallet_address)
     except Exception as exc:
@@ -113,6 +128,7 @@ async def create_wallet_challenge(
     expires_at = now + dt.timedelta(seconds=CHALLENGE_TTL_SECONDS)
     message = (
         "Degen Ecosystem wallet sign-in\n"
+        f"Domain: {origin}\n"
         f"Wallet: {payload.wallet_address}\n"
         f"Nonce: {nonce}\n"
         f"Issued At: {now.isoformat()}\n"
@@ -129,13 +145,19 @@ async def create_wallet_challenge(
 
 @router.post("/verify")
 async def verify_wallet_challenge(
-    payload: VerifyRequest, client: Prisma = Depends(get_db)
+    payload: VerifyRequest,
+    request: Request,
+    client: Prisma = Depends(get_db),
 ):
+    origin = _request_origin(request)
     challenge = await client.walletchallenge.find_unique(where={"nonce": payload.nonce})
     now = dt.datetime.now(dt.timezone.utc)
     if (
         not challenge
         or challenge.walletAddress != payload.wallet_address
+        or not challenge.message.startswith(
+            f"Degen Ecosystem wallet sign-in\nDomain: {origin}\n"
+        )
         or challenge.usedAt is not None
         or challenge.expiresAt <= now
     ):
