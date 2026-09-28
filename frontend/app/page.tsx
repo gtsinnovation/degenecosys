@@ -40,7 +40,7 @@ interface WarriorCompleteProfile {
 }
 
 export default function DegenWarriorPortal() {
-  const { publicKey } = useWallet();
+  const { publicKey, signMessage } = useWallet();
   const [warriors, setWarriors] = useState<LeaderboardUser[]>([]);
   const [contests, setContests] = useState<ActiveContest[]>([]);
   const [selectedWallet, setSelectedWallet] = useState<string>("WhaleTrue999999999999999999999999999999999");
@@ -50,7 +50,28 @@ export default function DegenWarriorPortal() {
   const [selectedContestId, setSelectedContestId] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
 
-  const API_BASE = "http://localhost:8000"; // Directed container local mapping handle
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
+  const authenticateWallet = async (): Promise<string> => {
+    if (!publicKey || !signMessage) throw new Error("Connect a wallet that supports message signing.");
+    const walletAddress = publicKey.toBase58();
+    const challengeResponse = await fetch(`${API_BASE}/api/auth/challenge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ wallet_address: walletAddress })
+    });
+    if (!challengeResponse.ok) throw new Error("Could not create wallet sign-in challenge.");
+    const challenge = await challengeResponse.json();
+    const signedBytes = await signMessage(new TextEncoder().encode(challenge.message));
+    const signature = btoa(Array.from(signedBytes, byte => String.fromCharCode(byte)).join(""));
+    const verifyResponse = await fetch(`${API_BASE}/api/auth/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ wallet_address: walletAddress, nonce: challenge.nonce, signature })
+    });
+    if (!verifyResponse.ok) throw new Error("Wallet signature was rejected.");
+    return (await verifyResponse.json()).access_token as string;
+  };
 
   const refreshDashboardData = async () => {
     try {
@@ -97,14 +118,11 @@ export default function DegenWarriorPortal() {
     if (!publicKey) return alert("Initialize your Solana wallet framework first!");
     setLoading(true);
     try {
+      const token = await authenticateWallet();
       const response = await fetch(`${API_BASE}/api/interact/vote`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          voter_wallet: publicKey.toBase58(),
-          target_wallet: targetWallet,
-          is_upvote: isUpvote
-        })
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ target_wallet: targetWallet, is_upvote: isUpvote })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Transaction blocked");
@@ -122,14 +140,11 @@ export default function DegenWarriorPortal() {
     if (!publicKey) return alert("Connect your wallet context matrix to submit proof!");
     setLoading(true);
     try {
+      const token = await authenticateWallet();
       const response = await fetch(`${API_BASE}/api/contests/submit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contest_id: selectedContestId,
-          warrior_wallet: publicKey.toBase58(),
-          submission_link: submissionUrl
-        })
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ contest_id: selectedContestId, submission_link: submissionUrl })
       });
       if (!response.ok) throw new Error("Submission entry rejected.");
       alert("Proof-of-work entry successfully logged!");
