@@ -1,54 +1,69 @@
+import os
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from prisma import Prisma
+from app.auth import router as auth_router, get_current_wallet
 from app.engine import process_vote_action, verify_whale_booster_status
 from app.contests import router as contests_router
 from app.admin import router as admin_router
-from app.profiles import router as profiles_router # 👈 ADD THIS IMPORT STATEMENT
+from app.profiles import router as profiles_router
 
 app = FastAPI(title="Degen Ecosystem Application Core Engine", version="1.0.0")
 db = Prisma()
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
+app.include_router(auth_router)
 app.include_router(contests_router)
 app.include_router(admin_router)
-app.include_router(profiles_router) # 👈 ADD THIS ROUTER REGISTER LINE
+app.include_router(profiles_router)
+
 
 @app.on_event("startup")
 async def startup():
     await db.connect()
 
+
 @app.on_event("shutdown")
 async def shutdown():
     await db.disconnect()
 
+
 class VoteRequest(BaseModel):
-    voter_wallet: str
     target_wallet: str
     is_upvote: bool
 
+
 @app.post("/api/interact/vote")
-async def register_warrior_vote(payload: VoteRequest):
+async def register_warrior_vote(
+    payload: VoteRequest, voter_wallet: str = Depends(get_current_wallet)
+):
     result = await process_vote_action(
-        db, payload.voter_wallet, payload.target_wallet, payload.is_upvote
+        db, voter_wallet, payload.target_wallet, payload.is_upvote
     )
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["detail"])
     return result
 
+
 @app.get("/api/leaderboard")
 async def get_warrior_leaderboard(limit: int = 50):
     leaderboard = await db.warriorxp.find_many(
         order={"currentXp": "desc"},
-        take=limit,
+        take=max(1, min(limit, 100)),
         include={"warrior": True}
     )
     return [
@@ -60,6 +75,7 @@ async def get_warrior_leaderboard(limit: int = 50):
         }
         for item in leaderboard
     ]
+
 
 @app.get("/api/warrior/{wallet_address}/booster-status")
 async def check_booster_eligibility(wallet_address: str):
