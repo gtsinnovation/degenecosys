@@ -223,12 +223,23 @@ export default function DegenWarriorPortal() {
                       </td>
                       <td className="py-4 text-right pr-2">
                         <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                          <button 
+                          <button
+                            type="button"
+                            aria-label={`Upvote ${warrior.username || warrior.wallet_address}`}
                             disabled={loading || !publicKey}
                             onClick={() => handleVote(warrior.wallet_address, true)}
                             className="p-2 bg-[#111318] border border-gray-800 hover:border-[#10B981] hover:text-[#10B981] text-gray-400 rounded transition-all"
                           >
                             <ArrowUp size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Demote ${warrior.username || warrior.wallet_address}`}
+                            disabled={loading || !publicKey}
+                            onClick={() => handleVote(warrior.wallet_address, false)}
+                            className="p-2 bg-[#111318] border border-gray-800 hover:border-[#EF4444] hover:text-[#EF4444] text-gray-400 rounded transition-all"
+                          >
+                            <ArrowDown size={14} />
                           </button>
                         </div>
                       </td>
