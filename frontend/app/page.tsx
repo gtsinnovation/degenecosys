@@ -16,8 +16,10 @@ interface ActiveContest {
   id: string;
   title: string;
   description: string;
-  prizePoolDd: number;
-  isActive: boolean;
+  prize_pool_dd: number;
+  is_active: boolean;
+  start_date: string;
+  end_date: string;
 }
 
 interface UnlockedBadge {
@@ -75,18 +77,18 @@ export default function DegenWarriorPortal() {
 
   const refreshDashboardData = async () => {
     try {
-      const resLeaderboard = await fetch(`${API_BASE}/api/leaderboard`);
-      if (resLeaderboard.ok) setWarriors(await resLeaderboard.json());
-
-      setContests([
-        {
-          id: "fc8a2dc6-02de-40af-b8d5-aa6158d16c23",
-          title: "Degen Meme Overlord Challenge",
-          description: "Produce high quality viral graphic content highlighting $DD lockup utilities.",
-          prizePoolDd: 50000.0,
-          isActive: true
-        }
+      const [resLeaderboard, resContests] = await Promise.all([
+        fetch(`${API_BASE}/api/leaderboard`),
+        fetch(`${API_BASE}/api/contests`)
       ]);
+      if (resLeaderboard.ok) setWarriors(await resLeaderboard.json());
+      if (resContests.ok) {
+        const activeContests: ActiveContest[] = await resContests.json();
+        setContests(activeContests);
+        setSelectedContestId((currentId) =>
+          activeContests.some((contest) => contest.id === currentId) ? currentId : ""
+        );
+      }
     } catch (err) {
       console.error("Dashboard synchronization error:", err);
     }
@@ -252,7 +254,7 @@ export default function DegenWarriorPortal() {
                   <div className="flex justify-between items-start gap-4">
                     <h3 className="font-bold text-gray-100">{contest.title}</h3>
                     <span className="shrink-0 text-xs font-mono text-[#F59E0B]">
-                      {contest.prizePoolDd.toLocaleString()} $DD POOL
+                      {contest.prize_pool_dd.toLocaleString()} $DD POOL
                     </span>
                   </div>
                   <p className="mt-2 text-sm text-gray-400">{contest.description}</p>
