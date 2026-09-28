@@ -12,11 +12,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
 from prisma import Prisma
+from app.database import db
 from pydantic import BaseModel, Field
 from solders.pubkey import Pubkey
 
 router = APIRouter(prefix="/api/auth", tags=["Wallet authentication"])
-db = Prisma()
 bearer = HTTPBearer(auto_error=False)
 TOKEN_TTL_SECONDS = 60 * 60
 CHALLENGE_TTL_SECONDS = 5 * 60

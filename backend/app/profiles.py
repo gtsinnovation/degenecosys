@@ -2,10 +2,10 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Optional
 from prisma import Prisma
+from app.database import db
 from app.auth import get_current_wallet
 
 router = APIRouter(prefix="/api/warrior", tags=["Warrior Identity & Profiles"])
-db = Prisma()
 
 
 async def get_db():

@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from prisma import Prisma
+from app.database import db
 from app.auth import router as auth_router, get_current_wallet
 from app.engine import process_vote_action, verify_whale_booster_status
 from app.contests import router as contests_router
@@ -11,7 +11,6 @@ from app.admin import router as admin_router
 from app.profiles import router as profiles_router
 
 app = FastAPI(title="Degen Ecosystem Application Core Engine", version="1.0.0")
-db = Prisma()
 
 allowed_origins = [
     origin.strip()
