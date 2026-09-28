@@ -74,13 +74,19 @@ pub mod degen_dollar {
         require!(clock.unix_timestamp >= vesting_account.cliff_time, DegenError::CliffNotReached);
 
         let elapsed_time = clock.unix_timestamp.checked_sub(vesting_account.start_time).ok_or(DegenError::MathOverflow)?;
-        
+        require!(elapsed_time >= 0, DegenError::MathOverflow);
+
         let total_vested = if elapsed_time >= vesting_account.duration {
             vesting_account.total_amount
         } else {
-            vesting_account.total_amount
-                .checked_mul(elapsed_time as u64).ok_or(DegenError::MathOverflow)?
-                .checked_div(vesting_account.duration as u64).ok_or(DegenError::MathOverflow)?
+            // Use a wider intermediate: realistic token allocations multiplied by
+            // elapsed seconds can overflow u64 before division by the duration.
+            let vested = (vesting_account.total_amount as u128)
+                .checked_mul(elapsed_time as u128)
+                .ok_or(DegenError::MathOverflow)?
+                .checked_div(vesting_account.duration as u128)
+                .ok_or(DegenError::MathOverflow)?;
+            u64::try_from(vested).map_err(|_| DegenError::MathOverflow)?
         };
 
         let claimable_amount = total_vested.checked_sub(vesting_account.amount_withdrawn).ok_or(DegenError::MathOverflow)?;
