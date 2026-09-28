@@ -318,7 +318,7 @@ export default function DegenWarriorPortal() {
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-gray-400">Liquidity Pool (50%)</dt>
-                <dd className="font-mono text-gray-100">Permanently Burned</dd>
+                <dd className="font-mono text-gray-100">500,000,000 $DD Allocated</dd>
               </div>
             </dl>
           </section>
