@@ -1,11 +1,18 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 from prisma import Prisma
 from app.auth import get_current_wallet, require_admin_wallet
 
 router = APIRouter(prefix="/api/contests", tags=["Contests & Challenges"])
 db = Prisma()
+
+
+def as_utc(value: datetime) -> datetime:
+    """Treat legacy timezone-naive database dates as UTC."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 async def get_db():
@@ -39,14 +46,19 @@ async def create_new_contest(
     client: Prisma = Depends(get_db),
     admin_wallet: str = Depends(require_admin_wallet),
 ):
+    start_date = as_utc(payload.start_date)
+    end_date = as_utc(payload.end_date)
+    if end_date <= start_date:
+        raise HTTPException(status_code=400, detail="Contest end date must be after its start date.")
+
     try:
         contest = await client.contest.create(
             data={
                 "title": payload.title,
                 "description": payload.description,
                 "prizePoolDd": payload.prize_pool_dd,
-                "startDate": payload.start_date,
-                "endDate": payload.end_date,
+                "startDate": start_date,
+                "endDate": end_date,
                 "isActive": True
             }
         )
@@ -68,6 +80,14 @@ async def submit_challenge_entry(
     contest = await client.contest.find_unique(where={"id": payload.contest_id})
     if not contest or not contest.isActive:
         raise HTTPException(status_code=400, detail="Targeted challenge is inactive or expired.")
+
+    now = datetime.now(timezone.utc)
+    start_date = as_utc(contest.startDate)
+    end_date = as_utc(contest.endDate)
+    if end_date <= start_date:
+        raise HTTPException(status_code=400, detail="Targeted challenge has an invalid schedule.")
+    if now < start_date or now >= end_date:
+        raise HTTPException(status_code=400, detail="Targeted challenge is outside its submission window.")
 
     try:
         submission = await client.contestsubmission.create(
