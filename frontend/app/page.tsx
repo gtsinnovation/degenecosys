@@ -269,6 +269,7 @@ export default function DegenWarriorPortal() {
                 <input
                   id="submission-url"
                   type="url"
+                  maxLength={2048}
                   required
                   placeholder="Paste artifact link (GitHub, Tweet link, IPFS content hash)..."
                   value={submissionUrl}
