@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from datetime import datetime, timezone
 from prisma import Prisma
 from app.auth import get_current_wallet, require_admin_wallet
+from app.engine import apply_xp_delta
 
 router = APIRouter(prefix="/api/contests", tags=["Contests & Challenges"])
 db = Prisma()
@@ -198,23 +199,9 @@ async def process_submission_payout(
                     )
 
             if should_award_xp:
-                target_xp = await transaction.warriorxp.find_unique(
-                    where={"warriorId": submission.warriorId}
-                )
-                current_xp = target_xp.currentXp if target_xp else 0
-                new_xp = max(-100, min(100, current_xp + 25))
-                rank_tier = 2 if new_xp > 0 else 1
-                await transaction.warriorxp.upsert(
-                    where={"warriorId": submission.warriorId},
-                    data={
-                        "create": {
-                            "warriorId": submission.warriorId,
-                            "currentXp": new_xp,
-                            "rankTier": rank_tier
-                        },
-                        "update": {"currentXp": new_xp, "rankTier": rank_tier}
-                    }
-                )
+                # Use the same compare-and-set path as votes so concurrent XP
+                # sources cannot overwrite each other or leave the rank tier stale.
+                await apply_xp_delta(transaction, submission.warriorId, 25)
 
             updated_sub = await transaction.contestsubmission.find_unique(
                 where={"id": submission.id}
