@@ -17,4 +17,6 @@ pub mod DegenError {
     InvalidVestingAccounts,
     #[msg("The vesting duration must be positive and the cliff must be within the duration.")]
     InvalidVestingDuration,
+    #[msg("Each initial allocation must use a distinct token vault.")]
+    InvalidVaultAccounts,
 }
