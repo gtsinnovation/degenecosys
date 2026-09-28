@@ -1,89 +1,121 @@
 # backend/scripts/snapshot_worker.py
-import os
 import asyncio
 import datetime
+import os
+from decimal import Decimal
+
 import httpx
 from prisma import Prisma
 
-# Configuration Setup
-RPC_ENDPOINT = "https://solana.com" # Replace with your premium Helius/Triton RPC url
-MINT_ADDRESS = "DdEgenEcosystem111111111111111111111111111" # Your Token Address
-TOTAL_SUPPLY = 1_000_000_000.0
+RPC_ENDPOINT = os.getenv("SOLANA_RPC_URL", "")
+MINT_ADDRESS = os.getenv("DD_MINT_ADDRESS", "")
+TOTAL_SUPPLY = Decimal("1000000000")
+
+
+async def rpc_call(client: httpx.AsyncClient, method: str, params: list):
+    response = await client.post(
+        RPC_ENDPOINT,
+        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("error"):
+        raise RuntimeError(f"Solana RPC {method} failed: {payload['error']}")
+    if "result" not in payload:
+        raise RuntimeError(f"Solana RPC {method} returned no result.")
+    return payload["result"]
+
+
+async def owner_for_token_account(client: httpx.AsyncClient, address: str) -> str:
+    account = await rpc_call(
+        client,
+        "getAccountInfo",
+        [address, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+    )
+    value = account.get("value")
+    try:
+        parsed = value["data"]["parsed"]
+        if parsed.get("type") != "account":
+            raise ValueError("unexpected account type")
+        return parsed["info"]["owner"]
+    except (TypeError, KeyError, ValueError) as exc:
+        raise RuntimeError(f"Could not resolve token account owner for {address}.") from exc
+
+
+async def token_balance_for_owner(client: httpx.AsyncClient, owner: str) -> Decimal:
+    result = await rpc_call(
+        client,
+        "getTokenAccountsByOwner",
+        [
+            owner,
+            {"mint": MINT_ADDRESS},
+            {"encoding": "jsonParsed", "commitment": "confirmed"},
+        ],
+    )
+    total = Decimal("0")
+    for account in result.get("value", []):
+        try:
+            amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]
+            total += Decimal(amount["uiAmountString"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(f"Could not parse $DD balance for wallet {owner}.") from exc
+    return total
+
 
 async def capture_token_holders_snapshot():
-    """
-    Executes an on-chain query parsing all token accounts holding Degen Dollar ($DD).
-    Calculates circulating footprint share allocations and stores records into the snapshot database.
-    """
+    if not RPC_ENDPOINT or not MINT_ADDRESS:
+        raise RuntimeError("SOLANA_RPC_URL and DD_MINT_ADDRESS must be configured.")
+
     db = Prisma()
     await db.connect()
-    
-    current_date = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
-    print(f"[{datetime.datetime.now()}] Launching Automated Midnight Token Balance Snapshot...")
-
-    # Solana JSON-RPC payload targeting Program Accounts (Token Program) filtering by Mint
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getTokenLargestAccounts",
-        "params": [
-            MINT_ADDRESS,
-            {"commitment": "confirmed"}
-        ]
-    }
+    current_date = datetime.datetime.now(datetime.timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0, tzinfo=None
+    )
+    print(f"[{datetime.datetime.now(datetime.timezone.utc)}] Starting token holder snapshot.")
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(RPC_ENDPOINT, json=payload, timeout=30.0)
-            response_json = response.json()
-            
-            if "result" not in response_json or "value" not in response_json["result"]:
-                print(f"Error: Invalid or blank RPC response payload returned. {response_json}")
-                await db.disconnect()
-                return
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            largest = await rpc_call(
+                client,
+                "getTokenLargestAccounts",
+                [MINT_ADDRESS, {"commitment": "confirmed"}],
+            )
+            # Largest-account results identify candidate holders, but their addresses
+            # are SPL token accounts. Resolve owners, then sum every $DD token account
+            # for each owner so database keys match authenticated wallet addresses.
+            owners = {
+                await owner_for_token_account(client, entry["address"])
+                for entry in largest.get("value", [])
+            }
 
-            accounts_data = response_json["result"]["value"]
-            
-            # Step through large token holders array
-            for entry in accounts_data:
-                # Resolve address details and raw amount (accounting for 9 decimal places)
-                token_account_pubkey = entry["address"]
-                raw_amount = float(entry["amount"])
-                ui_amount = raw_amount / 1_000_000_000.0
-                
-                # Derive ratio metrics relative to the ecosystem total supply allocation
-                percentage_held = (ui_amount / TOTAL_SUPPLY) * 100.0
-
-                # Upsert record safely to maintain daily state uniqueness metrics
+            for owner in owners:
+                balance = await token_balance_for_owner(client, owner)
+                percentage_held = (balance / TOTAL_SUPPLY) * Decimal("100")
                 await db.walletbalancesnapshot.upsert(
                     where={
                         "walletAddress_snapshotDate": {
-                            "walletAddress": token_account_pubkey,
-                            "snapshotDate": current_date
+                            "walletAddress": owner,
+                            "snapshotDate": current_date,
                         }
                     },
                     data={
                         "create": {
-                            "walletAddress": token_account_pubkey,
-                            "tokenBalance": ui_amount,
-                            "circulatingPercentage": percentage_held,
-                            "snapshotDate": current_date
+                            "walletAddress": owner,
+                            "tokenBalance": float(balance),
+                            "circulatingPercentage": float(percentage_held),
+                            "snapshotDate": current_date,
                         },
                         "update": {
-                            "tokenBalance": ui_amount,
-                            "circulatingPercentage": percentage_held
-                        }
-                    }
+                            "tokenBalance": float(balance),
+                            "circulatingPercentage": float(percentage_held),
+                        },
+                    },
                 )
-                
-            print(f"[{datetime.datetime.now()}] Success: Captured and verified {len(accounts_data)} major wallet snapshots.")
-            
-    except Exception as e:
-        print(f"Critical Worker Exception occurred while executing snapshot routines: {str(e)}")
+
+            print(f"Captured snapshots for {len(owners)} wallet owners.")
     finally:
         await db.disconnect()
 
+
 if __name__ == "__main__":
-    # To run this every midnight locally, hook this script into a Linux crontab:
-    # 0 0 * * * /usr/local/bin/python /workspace/backend/scripts/snapshot_worker.py
     asyncio.run(capture_token_holders_snapshot())
