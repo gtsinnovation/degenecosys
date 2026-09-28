@@ -9,6 +9,8 @@ pub mod DegenError {
     NoVestedTokensAvailable,
     #[msg("Unauthorized signer attempt to withdraw from this programmatic vault.")]
     UnauthorizedBeneficiary,
+    #[msg("The signer or token account is not authorized for this operation.")]
+    Unauthorized,
     #[msg("Math calculation error or overflow occurred during vesting evaluation.")]
     MathOverflow,
 }
