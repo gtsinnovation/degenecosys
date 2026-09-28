@@ -104,18 +104,13 @@ describe("degen_dollar_ecosystem_tests", () => {
   });
 
   it("Rejects drawdown release attempts triggered before the cliff window expires", async () => {
-    const [vaultAuthPda] = anchor.web3.PublicKey.findProgramAddressSync(
-      [Buffer.from("charity_auth")], // Authority mapping seeds
-      program.programId
-    );
-
     try {
       await program.methods
         .releaseVestedTokens()
         .accounts({
           vestingSchedule: vestingSchedulePda,
           vaultAccount: communityVault,
-          vaultAuthority: vaultAuthPda,
+          vaultAuthority: authority.publicKey,
           beneficiaryTokenAccount: warriorTokenAccount,
           beneficiary: warriorBeneficiary.publicKey,
           tokenProgram: TOKEN_PROGRAM_ID,
