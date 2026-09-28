@@ -12,20 +12,15 @@ model Warrior {
   walletAddress   String              @unique @map("wallet_address")
   username        String?             @unique
   avatarUrl       String?             @map("avatar_url")
-  
-  // New Customizable Warrior Profile Attributes
-  bio             String?             
+  bio             String?
   bannerUrl       String?             @map("banner_url")
   twitterHandle   String?             @map("twitter_handle")
-
   createdAt       DateTime            @default(now()) @map("created_at")
   updatedAt       DateTime            @updatedAt @map("updated_at")
   xp              WarriorXp?
   givenUpvotes    CommunityUpvote[]   @relation("VoterRelation")
-  receivedUpvotes CommunityUpvote[]  @relation("TargetRelation")
+  receivedUpvotes CommunityUpvote[]   @relation("TargetRelation")
   submissions     ContestSubmission[]
-  
-  // Many-to-many link tracking unlocked badges
   earnedBadges    WarriorEarnedBadge[]
 
   @@map("warriors")
@@ -94,7 +89,6 @@ model ContestSubmission {
   @@map("contest_submissions")
 }
 
-// 2. NEW ACHIEVEMENT BADGES CATALOG
 model Badge {
   id                     String               @id @default(uuid())
   name                   String               @unique
@@ -107,7 +101,6 @@ model Badge {
   @@map("badges")
 }
 
-// 3. NEW EARNED BADGES JUNCTION STATE MACHINE
 model WarriorEarnedBadge {
   warriorId  String   @map("warrior_id")
   badgeId    String   @map("badge_id")
@@ -117,4 +110,17 @@ model WarriorEarnedBadge {
 
   @@id([warriorId, badgeId])
   @@map("warrior_earned_badges")
+}
+
+model WalletChallenge {
+  id            String    @id @default(uuid())
+  walletAddress String    @map("wallet_address")
+  nonce         String    @unique
+  message       String
+  expiresAt     DateTime  @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([walletAddress, expiresAt])
+  @@map("wallet_challenges")
 }
