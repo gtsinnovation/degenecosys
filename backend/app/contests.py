@@ -38,8 +38,20 @@ class SubmitChallengeRequest(BaseModel):
     @field_validator("submission_link")
     @classmethod
     def require_http_url(cls, value: str) -> str:
-        parsed = urlsplit(value)
-        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        try:
+            parsed = urlsplit(value)
+            hostname = parsed.hostname
+            parsed.port  # Accessing this validates the port syntax and range.
+        except ValueError as exc:
+            raise ValueError("Submission link must be a valid HTTP or HTTPS URL.") from exc
+
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or any(character.isspace() for character in value)
+        ):
             raise ValueError("Submission link must be an absolute HTTP or HTTPS URL.")
         return value
 
