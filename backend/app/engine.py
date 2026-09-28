@@ -36,6 +36,45 @@ async def verify_whale_booster_status(db: Prisma, wallet_address: str) -> bool:
     return required_dates.issubset(valid_days)
 
 
+async def apply_xp_delta(
+    db: Prisma, warrior_id: str, xp_delta: int
+) -> tuple[int, int]:
+    """Apply a bounded XP change with compare-and-set retries.
+
+    The caller should use this inside the same transaction as the event that
+    grants XP. The conditional update keeps concurrent XP sources from
+    overwriting one another and updates the rank tier with the XP value.
+    """
+    xp_record = await db.warriorxp.find_unique(where={"warriorId": warrior_id})
+    if xp_record is None:
+        await db.warriorxp.create(
+            data={"warriorId": warrior_id, "currentXp": 0, "rankTier": 1}
+        )
+
+    for _ in range(10):
+        xp_record = await db.warriorxp.find_unique(where={"warriorId": warrior_id})
+        if xp_record is None:
+            raise RuntimeError("Warrior XP record disappeared during update.")
+
+        current_xp = xp_record.currentXp
+        new_xp = max(-100, min(100, current_xp + xp_delta))
+        if new_xp >= 100:
+            rank_tier = 3
+        elif new_xp > 0:
+            rank_tier = 2
+        else:
+            rank_tier = 1
+
+        updated = await db.warriorxp.update_many(
+            where={"warriorId": warrior_id, "currentXp": current_xp},
+            data={"currentXp": new_xp, "rankTier": rank_tier}
+        )
+        if updated.count == 1:
+            return new_xp, rank_tier
+
+    raise RuntimeError("Could not update warrior XP after concurrent changes.")
+
+
 async def process_vote_action(
     db: Prisma, voter_wallet: str, target_wallet: str, is_upvote: bool
 ) -> dict:
@@ -75,39 +114,10 @@ async def process_vote_action(
                 }
             )
 
-            target_xp_record = await transaction.warriorxp.find_unique(
-                where={"warriorId": target.id}
+            # XP writes share one conditional update path with contest awards.
+            new_xp, rank_tier = await apply_xp_delta(
+                transaction, target.id, xp_delta
             )
-            if target_xp_record is None:
-                target_xp_record = await transaction.warriorxp.create(
-                    data={"warriorId": target.id, "currentXp": 0, "rankTier": 1}
-                )
-
-            # Compare-and-set prevents two distinct voters from overwriting each
-            # other's XP when they read the same starting value concurrently.
-            for _ in range(10):
-                target_xp_record = await transaction.warriorxp.find_unique(
-                    where={"warriorId": target.id}
-                )
-                if target_xp_record is None:
-                    raise RuntimeError("Target XP record disappeared during vote.")
-
-                current_xp = target_xp_record.currentXp
-                new_xp = max(-100, min(100, current_xp + xp_delta))
-                rank_tier = 1
-                if new_xp >= 100:
-                    rank_tier = 3
-                elif new_xp > 0:
-                    rank_tier = 2
-
-                updated = await transaction.warriorxp.update_many(
-                    where={"warriorId": target.id, "currentXp": current_xp},
-                    data={"currentXp": new_xp, "rankTier": rank_tier}
-                )
-                if updated.count == 1:
-                    break
-            else:
-                raise RuntimeError("Could not update target XP after concurrent votes.")
     except Exception:
         try:
             existing_vote = await db.communityupvote.find_unique(where=vote_key)
