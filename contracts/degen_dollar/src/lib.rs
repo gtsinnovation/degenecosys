@@ -49,6 +49,11 @@ pub mod degen_dollar {
         let vesting_account = &mut ctx.accounts.vesting_schedule;
         let clock = Clock::get()?;
 
+        require!(
+            total_duration > 0 && cliff_duration >= 0 && cliff_duration <= total_duration,
+            DegenError::InvalidVestingDuration
+        );
+
         vesting_account.beneficiary = ctx.accounts.beneficiary.key();
         vesting_account.total_amount = total_amount;
         vesting_account.amount_withdrawn = 0;
