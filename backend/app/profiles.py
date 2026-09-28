@@ -67,7 +67,17 @@ async def update_warrior_profile(
     if not warrior:
         raise HTTPException(status_code=404, detail="Warrior profile not found.")
 
-    update_data = payload.model_dump(exclude_unset=True)
+    field_names = {
+        "username": "username",
+        "bio": "bio",
+        "banner_url": "bannerUrl",
+        "avatar_url": "avatarUrl",
+        "twitter_handle": "twitterHandle",
+    }
+    update_data = {
+        field_names[name]: value
+        for name, value in payload.model_dump(exclude_unset=True).items()
+    }
     try:
         updated_warrior = await client.warrior.update(
             where={"walletAddress": authenticated_wallet},
