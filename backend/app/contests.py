@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 from prisma import Prisma
 from app.database import db
@@ -25,7 +25,7 @@ async def get_db():
 class CreateContestRequest(BaseModel):
     title: str
     description: str
-    prize_pool_dd: float
+    prize_pool_dd: float = Field(ge=0, allow_inf_nan=False)
     start_date: datetime
     end_date: datetime
 
