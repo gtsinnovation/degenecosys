@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 from prisma import Prisma
 from app.database import db
 from app.auth import get_current_wallet, require_admin_wallet
@@ -32,7 +33,27 @@ class CreateContestRequest(BaseModel):
 
 class SubmitChallengeRequest(BaseModel):
     contest_id: str
-    submission_link: str
+    submission_link: str = Field(min_length=1, max_length=2048)
+
+    @field_validator("submission_link")
+    @classmethod
+    def require_http_url(cls, value: str) -> str:
+        try:
+            parsed = urlsplit(value)
+            hostname = parsed.hostname
+            _ = parsed.port  # Validate the port syntax and range.
+        except ValueError as exc:
+            raise ValueError("Submission link must be a valid HTTP or HTTPS URL.") from exc
+
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or any(character.isspace() for character in value)
+        ):
+            raise ValueError("Submission link must be an absolute HTTP or HTTPS URL.")
+        return value
 
 
 class ProcessPayoutRequest(BaseModel):

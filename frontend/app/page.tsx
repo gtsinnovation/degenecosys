@@ -269,8 +269,9 @@ export default function DegenWarriorPortal() {
                 <input
                   id="submission-url"
                   type="url"
+                  maxLength={2048}
                   required
-                  placeholder="Paste artifact link (GitHub, Tweet link, IPFS content hash)..."
+                  placeholder="Paste a web link (GitHub, social post, or HTTPS IPFS gateway)..."
                   value={submissionUrl}
                   onChange={(e) => setSubmissionUrl(e.target.value)}
                   className="w-full bg-[#08090C] border border-gray-800 focus:border-[#F59E0B] text-sm text-gray-100 font-mono rounded px-4 py-2.5 outline-none transition-colors"
