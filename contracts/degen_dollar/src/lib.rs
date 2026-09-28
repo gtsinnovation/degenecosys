@@ -202,11 +202,13 @@ impl<'info> InitializeEcosystem<'info> {
 
 #[derive(Accounts)]
 pub struct SetupVesting<'info> {
+    #[account(seeds = [b"charity_state"], bump = charity_state.bump)]
+    pub charity_state: Account<'info, CharityVaultState>,
     #[account(init, payer = authority, space = 8 + 32 + 8 + 8 + 8 + 8 + 8 + 1, seeds = [b"vesting", beneficiary.key().as_ref()], bump)]
     pub vesting_schedule: Account<'info, VestingSchedule>,
     /// CHECK: Target beneficiary wallet tracked as key parameters
     pub beneficiary: AccountInfo<'info>,
-    #[account(mut)]
+    #[account(mut, constraint = authority.key() == charity_state.distribution_authority @ DegenError::Unauthorized)]
     pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
