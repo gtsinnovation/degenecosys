@@ -41,8 +41,8 @@ async def process_vote_action(
 ) -> dict:
     """
     Records one vote per voter/target pair and applies its XP change atomically.
-    The unique voter/target key is the idempotency guard: retrying a request cannot
-    create another XP change for an already-recorded vote.
+    The unique voter/target key prevents duplicate votes, and compare-and-set retries
+    prevent concurrent votes from overwriting one another's XP changes.
     """
     voter = await db.warrior.find_unique(where={"walletAddress": voter_wallet})
     target = await db.warrior.find_unique(where={"walletAddress": target_wallet})
@@ -78,26 +78,36 @@ async def process_vote_action(
             target_xp_record = await transaction.warriorxp.find_unique(
                 where={"warriorId": target.id}
             )
-            current_xp = target_xp_record.currentXp if target_xp_record else 0
-            new_xp = max(-100, min(100, current_xp + xp_delta))
+            if target_xp_record is None:
+                target_xp_record = await transaction.warriorxp.create(
+                    data={"warriorId": target.id, "currentXp": 0, "rankTier": 1}
+                )
 
-            rank_tier = 1
-            if new_xp >= 100:
-                rank_tier = 3
-            elif new_xp > 0:
-                rank_tier = 2
+            # Compare-and-set prevents two distinct voters from overwriting each
+            # other's XP when they read the same starting value concurrently.
+            for _ in range(10):
+                target_xp_record = await transaction.warriorxp.find_unique(
+                    where={"warriorId": target.id}
+                )
+                if target_xp_record is None:
+                    raise RuntimeError("Target XP record disappeared during vote.")
 
-            await transaction.warriorxp.upsert(
-                where={"warriorId": target.id},
-                data={
-                    "create": {
-                        "warriorId": target.id,
-                        "currentXp": new_xp,
-                        "rankTier": rank_tier
-                    },
-                    "update": {"currentXp": new_xp, "rankTier": rank_tier}
-                }
-            )
+                current_xp = target_xp_record.currentXp
+                new_xp = max(-100, min(100, current_xp + xp_delta))
+                rank_tier = 1
+                if new_xp >= 100:
+                    rank_tier = 3
+                elif new_xp > 0:
+                    rank_tier = 2
+
+                updated = await transaction.warriorxp.update_many(
+                    where={"warriorId": target.id, "currentXp": current_xp},
+                    data={"currentXp": new_xp, "rankTier": rank_tier}
+                )
+                if updated.count == 1:
+                    break
+            else:
+                raise RuntimeError("Could not update target XP after concurrent votes.")
     except Exception:
         try:
             existing_vote = await db.communityupvote.find_unique(where=vote_key)
