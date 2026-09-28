@@ -38,6 +38,8 @@ pub mod degen_dollar {
         charity_state.total_distributed = 0;
         charity_state.distribution_count = 0;
         charity_state.bump = ctx.bumps.charity_state;
+        charity_state.distribution_authority = ctx.accounts.authority.key();
+        charity_state.token_mint = ctx.accounts.token_mint.key();
 
         Ok(())
     }
@@ -93,46 +95,58 @@ pub mod degen_dollar {
         Ok(())
     }
 
-    /// Executes an on-chain programmatic charity release following an approved community vote
+    /// Executes a charity release authorized by the configured distribution signer.
+    /// The description hash is recorded metadata; community-vote proofs are not verified on-chain.
     pub fn execute_charity_distribution(
         ctx: Context<ExecuteCharityDistribution>,
         distribution: CharityDistributionInfo
     ) -> Result<()> {
         let charity_state = &mut ctx.accounts.charity_state;
 
-        // Prevent overflow attempts or over-claiming beyond the 1% cap allocation limits
+        require_keys_eq!(
+            ctx.accounts.distribution_authority.key(),
+            charity_state.distribution_authority,
+            DegenError::Unauthorized
+        );
+        require_keys_eq!(
+            ctx.accounts.recipient_token_account.owner,
+            distribution.recipient,
+            DegenError::Unauthorized
+        );
+        require_keys_eq!(
+            ctx.accounts.recipient_token_account.mint,
+            charity_state.token_mint,
+            DegenError::Unauthorized
+        );
+        require!(distribution.amount > 0, DegenError::NoVestedTokensAvailable);
+
         let remaining_charity_pool = charity_state.total_charity_minted
             .checked_sub(charity_state.total_distributed)
             .ok_or(DegenError::MathOverflow)?;
-            
         require!(distribution.amount <= remaining_charity_pool, DegenError::NoVestedTokensAvailable);
 
-        // Update tracking state variables
-        charity_state.total_distributed = charity_state.total_distributed
+        let next_total_distributed = charity_state.total_distributed
             .checked_add(distribution.amount)
             .ok_or(DegenError::MathOverflow)?;
-        charity_state.distribution_count += 1;
+        let next_distribution_count = charity_state.distribution_count
+            .checked_add(1)
+            .ok_or(DegenError::MathOverflow)?;
 
-        // Perform programmatic transfer out of the 1% locked charity treasury to recipient wallet
         let transfer_accounts = Transfer {
             from: ctx.accounts.charity_vault.to_account_info(),
             to: ctx.accounts.recipient_token_account.to_account_info(),
-            authority: ctx.accounts.vault_authority.to_account_info(),
+            authority: ctx.accounts.distribution_authority.to_account_info(),
         };
-
-        // Deriving seeds for secure program signature execution
-        let seeds = &[b"charity_auth".as_ref(), &[charity_state.bump]];
-        let signer = [&seeds[..]];
-
-        let cpi_ctx = CpiContext::new_with_signer(
+        let cpi_ctx = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
             transfer_accounts,
-            &signer
         );
-        
         token::transfer(cpi_ctx, distribution.amount)?;
 
-        msg!("Programmatic Charity allocation of {} tokens cleanly executed.", distribution.amount);
+        charity_state.total_distributed = next_total_distributed;
+        charity_state.distribution_count = next_distribution_count;
+
+        msg!("Charity allocation of {} tokens executed.", distribution.amount);
         Ok(())
     }
 }
@@ -149,13 +163,13 @@ pub struct InitializeEcosystem<'info> {
     pub marketing_vault: Account<'info, TokenAccount>,
     #[account(mut)]
     pub dev_vault: Account<'info, TokenAccount>,
-    #[account(mut)]
+    #[account(mut, constraint = charity_vault.mint == token_mint.key(), constraint = charity_vault.owner == authority.key())]
     pub charity_vault: Account<'info, TokenAccount>,
     
     #[account(
         init,
         payer = authority,
-        space = 8 + 8 + 8 + 4 + 1,
+        space = 8 + 8 + 8 + 4 + 1 + 32 + 32,
         seeds = [b"charity_state"],
         bump
     )]
@@ -204,12 +218,14 @@ pub struct ReleaseVestedTokens<'info> {
 pub struct ExecuteCharityDistribution<'info> {
     #[account(mut, seeds = [b"charity_state"], bump = charity_state.bump)]
     pub charity_state: Account<'info, CharityVaultState>,
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = charity_vault.mint == charity_state.token_mint,
+        constraint = charity_vault.owner == charity_state.distribution_authority
+    )]
     pub charity_vault: Account<'info, TokenAccount>,
-    /// CHECK: Safe verification handling program signing permissions
-    pub vault_authority: AccountInfo<'info>,
     #[account(mut)]
     pub recipient_token_account: Account<'info, TokenAccount>,
-    pub multi_sig_authority: Signer<'info>, // Multi-sig execution authorization check
+    pub distribution_authority: Signer<'info>,
     pub token_program: Program<'info, Token>,
 }
