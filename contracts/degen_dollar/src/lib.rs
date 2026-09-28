@@ -19,6 +19,22 @@ pub mod degen_dollar {
     pub fn initialize_ecosystem(ctx: Context<InitializeEcosystem>) -> Result<()> {
         let total_supply: u64 = 1_000_000_000 * 1_000_000_000; // 1 Billion tokens with 9 decimals
 
+        let vault_keys = [
+            ctx.accounts.liquidity_vault.key(),
+            ctx.accounts.community_vault.key(),
+            ctx.accounts.marketing_vault.key(),
+            ctx.accounts.dev_vault.key(),
+            ctx.accounts.charity_vault.key(),
+        ];
+        for index in 0..vault_keys.len() {
+            for other_index in (index + 1)..vault_keys.len() {
+                require!(
+                    vault_keys[index] != vault_keys[other_index],
+                    DegenError::InvalidVaultAccounts
+                );
+            }
+        }
+
         // Updated 2026 Core Tokenomics Allotments.
         // Divide first so multiplying the u64 supply by a percentage cannot overflow.
         let allocation_unit = total_supply / 100;
