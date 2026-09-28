@@ -81,6 +81,7 @@ model ContestSubmission {
   submissionLink String   @map("submission_link")
   status         String   @default("PENDING")
   rewardPaid     Boolean  @default(false) @map("reward_paid")
+  xpAwarded      Boolean  @default(false) @map("xp_awarded")
   txSignature    String?  @map("tx_signature")
   createdAt      DateTime @default(now()) @map("created_at")
   contest        Contest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
