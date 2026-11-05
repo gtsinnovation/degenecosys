@@ -9,7 +9,9 @@ from prisma import Prisma
 
 RPC_ENDPOINT = os.getenv("SOLANA_RPC_URL", "")
 MINT_ADDRESS = os.getenv("DD_MINT_ADDRESS", "")
+TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 TOTAL_SUPPLY = Decimal("1000000000")
+WHALE_THRESHOLD_PERCENT = Decimal("2")
 
 
 async def rpc_call(client: httpx.AsyncClient, method: str, params: list):
@@ -26,40 +28,43 @@ async def rpc_call(client: httpx.AsyncClient, method: str, params: list):
     return payload["result"]
 
 
-async def owner_for_token_account(client: httpx.AsyncClient, address: str) -> str:
-    account = await rpc_call(
+async def get_whale_balances(client: httpx.AsyncClient) -> dict[str, Decimal]:
+    # getTokenLargestAccounts returns only 20 token accounts. Scan all classic
+    # SPL token accounts for this mint so wallets outside that top 20 are included.
+    accounts = await rpc_call(
         client,
-        "getAccountInfo",
-        [address, {"encoding": "jsonParsed", "commitment": "confirmed"}],
-    )
-    value = account.get("value")
-    try:
-        parsed = value["data"]["parsed"]
-        if parsed.get("type") != "account":
-            raise ValueError("unexpected account type")
-        return parsed["info"]["owner"]
-    except (TypeError, KeyError, ValueError) as exc:
-        raise RuntimeError(f"Could not resolve token account owner for {address}.") from exc
-
-
-async def token_balance_for_owner(client: httpx.AsyncClient, owner: str) -> Decimal:
-    result = await rpc_call(
-        client,
-        "getTokenAccountsByOwner",
+        "getProgramAccounts",
         [
-            owner,
-            {"mint": MINT_ADDRESS},
-            {"encoding": "jsonParsed", "commitment": "confirmed"},
+            TOKEN_PROGRAM_ID,
+            {
+                "encoding": "jsonParsed",
+                "commitment": "confirmed",
+                "filters": [
+                    {"dataSize": 165},
+                    {"memcmp": {"offset": 0, "bytes": MINT_ADDRESS}},
+                ],
+            },
         ],
     )
-    total = Decimal("0")
-    for account in result.get("value", []):
+
+    owner_balances: dict[str, Decimal] = {}
+    for account in accounts:
         try:
-            amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]
-            total += Decimal(amount["uiAmountString"])
+            info = account["account"]["data"]["parsed"]["info"]
+            if info.get("mint") != MINT_ADDRESS:
+                continue
+            owner = info["owner"]
+            amount = Decimal(info["tokenAmount"]["uiAmountString"])
         except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeError(f"Could not parse $DD balance for wallet {owner}.") from exc
-    return total
+            raise RuntimeError("Could not parse an SPL token account returned by RPC.") from exc
+        owner_balances[owner] = owner_balances.get(owner, Decimal("0")) + amount
+
+    minimum_balance = TOTAL_SUPPLY * WHALE_THRESHOLD_PERCENT / Decimal("100")
+    return {
+        owner: balance
+        for owner, balance in owner_balances.items()
+        if balance >= minimum_balance
+    }
 
 
 async def capture_token_holders_snapshot():
@@ -75,21 +80,22 @@ async def capture_token_holders_snapshot():
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            largest = await rpc_call(
-                client,
-                "getTokenLargestAccounts",
-                [MINT_ADDRESS, {"commitment": "confirmed"}],
-            )
-            # Largest-account results identify candidate holders, but their addresses
-            # are SPL token accounts. Resolve owners, then sum every $DD token account
-            # for each owner so database keys match authenticated wallet addresses.
-            owners = {
-                await owner_for_token_account(client, entry["address"])
-                for entry in largest.get("value", [])
-            }
+            whale_balances = await get_whale_balances(client)
+            # Missing daily rows represent a balance below the 2% qualification
+            # threshold, matching verify_whale_booster_status's fail-closed logic.
+            if whale_balances:
+                await db.walletbalancesnapshot.delete_many(
+                    where={
+                        "snapshotDate": current_date,
+                        "walletAddress": {"notIn": list(whale_balances)},
+                    }
+                )
+            else:
+                await db.walletbalancesnapshot.delete_many(
+                    where={"snapshotDate": current_date}
+                )
 
-            for owner in owners:
-                balance = await token_balance_for_owner(client, owner)
+            for owner, balance in whale_balances.items():
                 percentage_held = (balance / TOTAL_SUPPLY) * Decimal("100")
                 await db.walletbalancesnapshot.upsert(
                     where={
@@ -112,7 +118,7 @@ async def capture_token_holders_snapshot():
                     },
                 )
 
-            print(f"Captured snapshots for {len(owners)} wallet owners.")
+            print(f"Captured qualifying snapshots for {len(whale_balances)} wallet owners.")
     finally:
         await db.disconnect()
 
